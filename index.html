@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Irrigation System — Live Monitoring</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#31393c;--muted:#748087;--line:#d4d9dc;--blue:#3e96f4;--green:#20a464;--yellow:#d59a24;--purple:#8d62d9}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 88% 0,#eaf4ff 0,transparent 28%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}section[id]{scroll-margin-top:112px}
+.glass{background:rgba(255,255,255,.84);backdrop-filter:blur(16px);border-bottom:1px solid rgba(212,217,220,.85)}
+.card{background:rgba(255,255,255,.93);border:1px solid var(--line);box-shadow:0 16px 45px rgba(49,57,60,.06)}
+.metric{background:linear-gradient(180deg,#fff,#fbfcfc);border:1px solid var(--line);transition:.2s}.metric:hover{transform:translateY(-2px);box-shadow:0 12px 25px rgba(49,57,60,.07)}
+.small{font-size:11px;text-transform:uppercase;letter-spacing:.13em;font-weight:800;color:#8a9499}.kicker{font-size:11px;text-transform:uppercase;letter-spacing:.17em;font-weight:800;color:var(--blue)}.value{font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+.status{border-radius:999px;padding:.4rem .72rem;font-size:.72rem;font-weight:800}.on{background:#eaf8f1;color:#197548;border:1px solid #bfe6cf}.off{background:#f3f5f5;color:#667075;border:1px solid #dce1e3}.amber{background:#fff5df;color:#91630f;border:1px solid #edd7a4}.dot{width:9px;height:9px;border-radius:999px;display:inline-block}.live-dot{background:#25a567;box-shadow:0 0 0 5px rgba(37,165,103,.10)}.dead-dot{background:#d9534f;box-shadow:0 0 0 5px rgba(217,83,79,.10)}
+.hero-copy{transform:translateY(-8px)}
+.hero{background:linear-gradient(135deg,#2e383c,#3a515b);position:relative;overflow:hidden}.hero:before{content:"";position:absolute;inset:0;opacity:.16;background:linear-gradient(rgba(255,255,255,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.5) 1px,transparent 1px);background-size:32px 32px;mask-image:linear-gradient(90deg,#000,transparent 80%)}.hero:after{content:"";position:absolute;width:360px;height:360px;right:-140px;top:-180px;border-radius:50%;border:1px solid rgba(255,255,255,.12);box-shadow:0 0 0 40px rgba(255,255,255,.025),0 0 0 80px rgba(255,255,255,.018)}
+
+.history-modal-backdrop{display:none;position:fixed;inset:0;background:rgba(25,31,34,.52);z-index:80;align-items:center;justify-content:center;padding:20px}
+.history-modal-backdrop.open{display:flex}
+.history-modal{width:min(1100px,96vw);max-height:88vh;background:#fff;border:1px solid #d4d9dc;border-radius:24px;box-shadow:0 30px 80px rgba(31,40,44,.24);display:flex;flex-direction:column;overflow:hidden}
+.history-head{padding:20px 24px;border-bottom:1px solid #d4d9dc;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.history-body{padding:18px 24px 24px;overflow:auto}
+.history-table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.history-table th{position:sticky;top:0;background:#f4f6f8;color:#748087;text-transform:uppercase;letter-spacing:.08em;font-size:10px;text-align:left;padding:12px;border-bottom:1px solid #d4d9dc}
+.history-table td{padding:11px 12px;border-bottom:1px solid #edf0f1;white-space:nowrap}
+.history-table tr:last-child td{border-bottom:none}
+.history-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.history-filter{border:1px solid #d4d9dc;background:#fff;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700;color:#31393c}
+.history-btn{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid #d4d9dc;background:#fff;font-size:12px;font-weight:800;color:#31393c;cursor:pointer;transition:.18s}
+.history-btn:hover{background:#f4f6f8}
+.history-close{width:44px;height:44px;border:none;border-radius:12px;background:#f1f3f4;color:#000 !important;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.18s ease;font-family:Arial,sans-serif;font-size:30px;font-weight:700;line-height:1;padding:0}.history-close:hover{background:#e5e7e9}.history-close .close-x{color:#000 !important;display:block;font-size:30px;font-weight:700;line-height:1;transform:translateY(-1px)}
+.history-empty{padding:48px 12px;text-align:center;color:#748087}
+@media(max-width:700px){.history-head{padding:16px}.history-body{padding:14px}.history-table{font-size:12px}.history-btn{width:100%;justify-content:center}}
+</style>
+</head>
+<body>
+<main class="main min-h-screen">
+<header class="top-head sticky top-0 z-20 glass"><div class="max-w-[1500px] mx-auto px-6 lg:px-10 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"><div><div class="small">Central monitoring · live telemetry</div><h1 class="text-[28px] md:text-[34px] font-black tracking-tight mt-1">Smart Irrigation System</h1><p class="text-sm text-[#748087] mt-1">Real-time observation of all three ESP32 subsystems.</p></div><div id="connection-status" class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 bg-red-50 text-red-700 border border-red-200 text-sm font-bold"><span class="dot dead-dot"></span> Connecting...</div></div></header>
+<div class="max-w-[1500px] mx-auto px-6 lg:px-10 py-7 space-y-7">
+<section id="overview" class="hero rounded-[28px] text-white p-7 md:p-9"><div class="relative z-10 grid xl:grid-cols-[1.25fr_1fr] gap-8 items-center"><div class="hero-copy"><div class="text-[10px] uppercase tracking-[.22em] text-white/45 font-bold">Live system overview</div><h2 class="text-3xl md:text-5xl font-black tracking-[-.05em] mt-2">Smart irrigation<br><span class="text-[#8dc8ff]">live dashboard.</span></h2><p class="text-sm md:text-base text-white/60 leading-7 max-w-2xl mt-4">One live view of the channel, field environment, irrigation state and solar cooling system.</p></div><div class="grid grid-cols-2 gap-3"><div class="rounded-2xl bg-white/7 border border-white/10 p-4"><div class="text-[10px] text-white/40 uppercase tracking-wider font-bold">Channel</div><div id="sys1-channel" class="text-2xl font-black value mt-2">--</div><div class="text-[11px] text-white/40 mt-1">System 1</div></div><div class="rounded-2xl bg-white/7 border border-white/10 p-4"><div class="text-[10px] text-white/40 uppercase tracking-wider font-bold">Soil</div><div id="sys1-soil" class="text-2xl font-black value mt-2">--</div><div class="text-[11px] text-white/40 mt-1">System 1</div></div><div class="rounded-2xl bg-white/7 border border-white/10 p-4"><div class="text-[10px] text-white/40 uppercase tracking-wider font-bold">Field temperature</div><div id="sys2-temp" class="text-2xl font-black value mt-2">-- °C</div><div class="text-[11px] text-white/40 mt-1">DHT22</div></div><div class="rounded-2xl bg-white/7 border border-white/10 p-4"><div class="text-[10px] text-white/40 uppercase tracking-wider font-bold">Solar temperature</div><div id="sys3-temp" class="text-2xl font-black value mt-2">-- °C</div><div class="text-[11px] text-white/40 mt-1">DS18B20</div></div></div></div></section>
+<section id="system1" class="card rounded-[26px] overflow-hidden"><div class="h-1 bg-[#3E96F4]"></div><div class="p-6 md:p-7 border-b border-[#d4d9dc] flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><div class="kicker">System 1</div><h2 class="text-2xl font-black tracking-tight mt-1">Dam & Irrigation Pump</h2><p class="text-sm text-[#748087] mt-1">Live channel, soil, gate and pump state from the irrigation controller.</p></div><div class="flex items-center gap-2 self-start"><button class="history-btn" data-history-system="system1"><i class="fa-solid fa-clock-rotate-left"></i> View History</button><div class="px-3 py-2 rounded-full bg-[#f1f5f7] border border-[#d4d9dc] text-xs font-bold">ESP32-S3</div></div></div><div class="p-6 md:p-7 grid sm:grid-cols-2 lg:grid-cols-4 gap-4"><div class="metric rounded-2xl p-5"><div class="small">Channel sensor</div><div id="sys1-channel-card" class="text-3xl font-black value mt-4">--</div><div class="text-xs text-[#748087] mt-1">Water presence</div></div><div class="metric rounded-2xl p-5"><div class="small">Soil sensor</div><div id="sys1-soil-card" class="text-3xl font-black value mt-4">--</div><div class="text-xs text-[#748087] mt-1">Moisture state</div></div><div class="metric rounded-2xl p-5"><div class="small">Dam / Stepper</div><div id="sys1-dam" class="text-3xl font-black value mt-4">--</div><div class="text-xs text-[#748087] mt-1">Current position/state</div></div><div class="metric rounded-2xl p-5"><div class="small">Irrigation pump</div><div id="sys1-pump" class="text-3xl font-black value mt-4">--</div><div class="text-xs text-[#748087] mt-1">Current state</div></div></div><div class="px-6 md:px-7 pb-7"><div class="rounded-2xl bg-[#EDEEEB] border border-[#d4d9dc] p-4 flex items-center justify-between"><div><div class="small">Operating mode</div><div class="text-sm font-bold mt-1">Automatic control state</div></div><div id="sys1-automode" class="status off">--</div></div></div></section>
+<section id="system2" class="card rounded-[26px] overflow-hidden"><div class="h-1 bg-[#8d62d9]"></div><div class="p-6 md:p-7 border-b border-[#d4d9dc] flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><div class="kicker" style="color:#8d62d9">System 2</div><h2 class="text-2xl font-black tracking-tight mt-1">Agriculture & Environment</h2><p class="text-sm text-[#748087] mt-1">Environmental sensors and actuator states from the agriculture ESP32.</p></div><div class="flex items-center gap-2 self-start"><button class="history-btn" data-history-system="system2"><i class="fa-solid fa-clock-rotate-left"></i> View History</button><div class="px-3 py-2 rounded-full bg-[#f1f5f7] border border-[#d4d9dc] text-xs font-bold">DHT22 + Analog Inputs</div></div></div><div class="p-6 md:p-7 grid xl:grid-cols-[1.6fr_.7fr] gap-6"><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><div class="metric rounded-2xl p-5"><div class="small">Temperature</div><div id="sys2-temp-card" class="text-3xl font-black value mt-3">-- °C</div><div class="text-xs text-[#748087] mt-1">Degrees Celsius (°C)</div></div><div class="metric rounded-2xl p-5"><div class="small">Humidity</div><div id="sys2-hum-card" class="text-3xl font-black value mt-3">-- %</div><div class="text-xs text-[#748087] mt-1">Relative humidity (%)</div></div><div class="metric rounded-2xl p-5"><div class="small">Light (LDR)</div><div id="sys2-ldr" class="text-3xl font-black value mt-3">--</div><div class="text-xs text-[#748087] mt-1">Raw ADC</div></div><div class="metric rounded-2xl p-5"><div class="small">Soil moisture</div><div id="sys2-soil-val" class="text-3xl font-black value mt-3">--</div><div class="text-xs text-[#748087] mt-1">Raw ADC</div></div><div class="metric rounded-2xl p-5"><div class="small">Rain sensor</div><div id="sys2-rain" class="text-3xl font-black value mt-3">--</div><div class="text-xs text-[#748087] mt-1">Raw ADC</div></div><div class="metric rounded-2xl p-5"><div class="small">Water level</div><div id="sys2-water" class="text-3xl font-black value mt-3">--</div><div class="text-xs text-[#748087] mt-1">Raw ADC</div></div></div><div class="rounded-2xl bg-[#EDEEEB] border border-[#d4d9dc] p-5"><div class="small">Actuator status</div><div class="mt-4 space-y-3"><div class="bg-white rounded-2xl border border-[#d4d9dc] p-4 flex items-center justify-between"><span class="font-bold">Ventilation fan</span><span id="sys2-fan" class="status off">--</span></div><div class="bg-white rounded-2xl border border-[#d4d9dc] p-4 flex items-center justify-between"><span class="font-bold">Humidifier</span><span id="sys2-humidifier" class="status off">--</span></div><div class="bg-white rounded-2xl border border-[#d4d9dc] p-4 flex items-center justify-between"><span class="font-bold">Automatic mode</span><span id="sys2-automode" class="status off">--</span></div></div></div></div></section>
+<section id="system3" class="card rounded-[26px] overflow-hidden"><div class="h-1 bg-[#e0ad2f]"></div><div class="p-6 md:p-7 border-b border-[#d4d9dc] flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><div class="kicker" style="color:#bd8c1a">System 3</div><h2 class="text-2xl font-black tracking-tight mt-1">Solar Panel Cooling</h2><p class="text-sm text-[#748087] mt-1">Real-time DS18B20 temperature and automatic cooling-pump state.</p></div><button class="history-btn" data-history-system="system3"><i class="fa-solid fa-clock-rotate-left"></i> View History</button></div><div class="p-6 md:p-7 grid md:grid-cols-[1.2fr_.8fr] gap-5"><div class="metric rounded-2xl p-7"><div class="small">Panel temperature</div><div id="sys3-temp-card" class="text-5xl font-black value mt-4">-- °C</div><div class="text-xs text-[#748087] mt-2">Degrees Celsius (°C)</div></div><div class="metric rounded-2xl p-7 flex flex-col justify-between"><div><div class="small">Cooling pump</div><div class="flex items-center justify-between gap-4 mt-5"><div class="text-lg font-black">Current state</div><div id="sys3-pump" class="status off">--</div></div></div></div></div></section>
+<section class="card rounded-[26px] p-6 md:p-7"><div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4"><div><div class="kicker">Connectivity</div><h2 class="text-xl font-black mt-1">Live telemetry pipeline</h2><p class="text-sm text-[#748087] mt-1">The browser subscribes to the same MQTT topics used by the supplied firmware.</p></div><span class="text-xs text-[#748087]">Observation only</span></div><div class="grid md:grid-cols-3 gap-4 mt-5"><div class="rounded-2xl bg-[#EDEEEB] p-4"><div class="small">Browser</div><div class="font-bold mt-2">HiveMQ Secure WebSocket</div><div class="text-xs text-[#748087] mt-1">Port 8884</div></div><div class="rounded-2xl bg-[#EDEEEB] p-4"><div class="small">ESP32</div><div class="font-bold mt-2">MQTT over TLS</div><div class="text-xs text-[#748087] mt-1">Port 8883</div></div><div class="rounded-2xl bg-[#EDEEEB] p-4"><div class="small">Refresh behavior</div><div class="font-bold mt-2">Message driven</div><div class="text-xs text-[#748087] mt-1">No page reload required</div></div></div></section>
+</div></main>
+<div id="history-modal" class="history-modal-backdrop" aria-hidden="true">
+  <div class="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
+    <div class="history-head">
+      <div>
+        <div class="kicker">Historical data</div>
+        <h2 id="history-title" class="text-2xl font-black tracking-tight mt-1">System History</h2>
+        <p id="history-subtitle" class="text-sm text-[#748087] mt-1">Saved locally in this browser.</p>
+      </div>
+      <button id="history-close" class="history-close" aria-label="Close history"><span class="close-x" aria-hidden="true">×</span></button>
+    </div>
+    <div class="history-body">
+      <div class="history-controls mb-4">
+        <select id="history-range" class="history-filter" aria-label="History range">
+          <option value="1">Last 24 hours</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="0">All saved data</option>
+        </select>
+        <select id="history-limit" class="history-filter" aria-label="Rows per history view">
+          <option value="100">100 rows</option>
+          <option value="250">250 rows</option>
+          <option value="500">500 rows</option>
+        </select>
+        <button id="history-export" class="history-btn"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="history-table">
+          <thead id="history-head-row"></thead>
+          <tbody id="history-body-rows"></tbody>
+        </table>
+      </div>
+      <div id="history-empty" class="history-empty" style="display:none">No historical readings are saved yet. Keep the dashboard open while MQTT messages arrive.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const brokerUrl='wss://ab995e3f1088482993657763af4ff2d8.s1.eu.hivemq.cloud:8884/mqtt';
+const options={clientId:'WebDashboard_'+Math.random().toString(16).substring(2,10),username:'qwertyuiop1234567',password:'nUK#68G8ujMn@_W',clean:true,reconnectPeriod:5000};
+const client=mqtt.connect(brokerUrl,options), statusEl=document.getElementById('connection-status');
+function setConnection(ok){statusEl.innerHTML=ok?'<span class="dot live-dot"></span> Connected to HiveMQ':'<span class="dot dead-dot"></span> Connection lost';statusEl.className=ok?'inline-flex items-center gap-2 rounded-full px-4 py-2.5 bg-green-50 text-green-700 border border-green-200 text-sm font-bold':'inline-flex items-center gap-2 rounded-full px-4 py-2.5 bg-red-50 text-red-700 border border-red-200 text-sm font-bold'}
+const subscriptions=['system1/sensors/channel','system1/sensors/soil','system1/status/pump','system1/status/dam','system1/status/automode','system2/sensors/temp','system2/sensors/hum','system2/sensors/ldr','system2/sensors/soil','system2/sensors/rain','system2/sensors/water','system2/status/fan','system2/status/humidifier','system2/status/automode','system3/sensors/solar_temp','system3/status/cooling_pump'];
+client.on('connect',()=>{setConnection(true);client.subscribe(subscriptions,err=>{if(err)console.error('Subscription error:',err);});});client.on('error',e=>{console.error(e);setConnection(false)});client.on('offline',()=>setConnection(false));client.on('close',()=>setConnection(false));
+function setText(ids,val){ids.forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=val})}
+function setState(id,on){const e=document.getElementById(id);if(!e)return;e.textContent=on?'ON':'OFF';e.classList.toggle('on',on);e.classList.toggle('off',!on)}
+function setMode(id,on){const e=document.getElementById(id);if(!e)return;e.textContent=on?'ON — AUTOMATIC':'OFF — MANUAL';e.classList.toggle('on',on);e.classList.toggle('off',!on)}
+client.on('message',(topic,message)=>{const p=message.toString(); const system=topic.startsWith('system1/')?'system1':topic.startsWith('system2/')?'system2':topic.startsWith('system3/')?'system3':null; if(system) saveHistory(system,topic,p);if(topic==='system1/sensors/channel')setText(['sys1-channel','sys1-channel-card'],p==='WET'?'WET':'DRY');else if(topic==='system1/sensors/soil')setText(['sys1-soil','sys1-soil-card'],p==='WET'?'WET':'DRY');else if(topic==='system1/status/dam')setText(['sys1-dam'],p==='OPEN'?'OPEN':'CLOSED');else if(topic==='system1/status/pump')setState('sys1-pump',p==='ON');else if(topic==='system1/status/automode')setMode('sys1-automode',p==='ON');else if(topic==='system2/sensors/temp'){const v=parseFloat(p);setText(['sys2-temp','sys2-temp-card'],Number.isFinite(v)?v.toFixed(1)+' °C':p)}else if(topic==='system2/sensors/hum'){const v=parseFloat(p);setText(['sys2-hum','sys2-hum-card'],Number.isFinite(v)?v.toFixed(1)+' %':p)}else if(topic==='system2/sensors/ldr')setText(['sys2-ldr'],p);else if(topic==='system2/sensors/soil')setText(['sys2-soil-val'],p);else if(topic==='system2/sensors/rain')setText(['sys2-rain'],p);else if(topic==='system2/sensors/water')setText(['sys2-water'],p);else if(topic==='system2/status/fan')setState('sys2-fan',p==='ON');else if(topic==='system2/status/humidifier')setState('sys2-humidifier',p==='ON');else if(topic==='system2/status/automode')setMode('sys2-automode',p==='ON');else if(topic==='system3/sensors/solar_temp'){const v=parseFloat(p);setText(['sys3-temp','sys3-temp-card'],Number.isFinite(v)?v.toFixed(1)+' °C':p)}else if(topic==='system3/status/cooling_pump')setState('sys3-pump',p==='ON')});
+// Local historical storage (IndexedDB)
+const HISTORY_DB_NAME='smart_irrigation_history';
+const HISTORY_DB_VERSION=1;
+const HISTORY_STORE='readings';
+let historyDbPromise=null;
+let activeHistorySystem=null;
+let activeHistoryRows=[];
+const historyLabels={
+  system1:{title:'System 1 — Dam & Irrigation Pump', sensors:{'system1/sensors/channel':'Channel','system1/sensors/soil':'Soil','system1/status/pump':'Irrigation Pump','system1/status/dam':'Dam / Stepper','system1/status/automode':'Automatic Mode'}},
+  system2:{title:'System 2 — Agriculture & Environment', sensors:{'system2/sensors/temp':'Temperature','system2/sensors/hum':'Humidity','system2/sensors/ldr':'Light (LDR)','system2/sensors/soil':'Soil Moisture','system2/sensors/rain':'Rain Sensor','system2/sensors/water':'Water Level','system2/status/fan':'Ventilation Fan','system2/status/humidifier':'Humidifier','system2/status/automode':'Automatic Mode'}},
+  system3:{title:'System 3 — Solar Panel Cooling', sensors:{'system3/sensors/solar_temp':'Panel Temperature','system3/status/cooling_pump':'Cooling Pump'}}
+};
+function openHistoryDb(){
+  if(historyDbPromise)return historyDbPromise;
+  historyDbPromise=new Promise((resolve,reject)=>{
+    const req=indexedDB.open(HISTORY_DB_NAME,HISTORY_DB_VERSION);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(HISTORY_STORE)){
+        const store=db.createObjectStore(HISTORY_STORE,{keyPath:'id',autoIncrement:true});
+        store.createIndex('system','system',{unique:false});
+        store.createIndex('timestamp','timestamp',{unique:false});
+        store.createIndex('system_timestamp',['system','timestamp'],{unique:false});
+      }
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+  return historyDbPromise;
+}
+async function saveHistory(system,topic,value,timestamp=Date.now()){
+  try{
+    const db=await openHistoryDb();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(HISTORY_STORE,'readwrite');
+      tx.objectStore(HISTORY_STORE).add({system,topic,value,timestamp});
+      tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+    });
+  }catch(e){console.error('History storage error:',e);}
+}
+async function loadHistory(system,days,limit){
+  const db=await openHistoryDb();
+  const cutoff=days?Date.now()-days*86400000:0;
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(HISTORY_STORE,'readonly');
+    const req=tx.objectStore(HISTORY_STORE).index('system_timestamp').openCursor(IDBKeyRange.bound([system,cutoff],[system,Date.now()+1]));
+    const rows=[];
+    req.onsuccess=()=>{
+      const cur=req.result;
+      if(cur){rows.push(cur.value);cur.continue();}
+      else{rows.sort((a,b)=>b.timestamp-a.timestamp);resolve(rows.slice(0,limit));}
+    };
+    req.onerror=()=>reject(req.error);
+  });
+}
+function fmtTime(ts){return new Date(ts).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function prettyValue(topic,value){
+  const s=historyLabels[activeHistorySystem]?.sensors?.[topic]||topic;
+  if(topic.endsWith('/temp')||topic==='system3/sensors/solar_temp'){const v=parseFloat(value);return Number.isFinite(v)?v.toFixed(1)+' °C':value}
+  if(topic.endsWith('/hum')){const v=parseFloat(value);return Number.isFinite(v)?v.toFixed(1)+' %':value}
+  if(/status\/(pump|fan|humidifier|cooling_pump)/.test(topic))return value==='ON'?'ON':'OFF';
+  if(topic.endsWith('/automode'))return value==='ON'?'ON — AUTOMATIC':'OFF — MANUAL';
+  if(topic.endsWith('/channel')||topic.endsWith('/soil'))return value==='WET'?'WET':value==='DRY'?'DRY':value;
+  if(topic.endsWith('/dam'))return value==='OPEN'?'OPEN':'CLOSED';
+  return value;
+}
+async function renderHistory(){
+  if(!activeHistorySystem)return;
+  const days=Number(document.getElementById('history-range').value);
+  const limit=Number(document.getElementById('history-limit').value);
+  const cfg=historyLabels[activeHistorySystem];
+  const head=document.getElementById('history-head-row');
+  const body=document.getElementById('history-body-rows');
+  const empty=document.getElementById('history-empty');
+  const columns=['time','sensor','value'];
+  head.innerHTML='<tr><th>Timestamp</th><th>Sensor</th><th>Value</th></tr>';
+  body.innerHTML='';
+  try{activeHistoryRows=await loadHistory(activeHistorySystem,days,limit)}catch(e){console.error(e);activeHistoryRows=[]}
+  empty.style.display=activeHistoryRows.length?'none':'block';
+  if(!activeHistoryRows.length)return;
+  const frag=document.createDocumentFragment();
+  activeHistoryRows.forEach(r=>{
+    const tr=document.createElement('tr');
+    [fmtTime(r.timestamp),cfg.sensors[r.topic]||r.topic,prettyValue(r.topic,r.value)].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});
+    frag.appendChild(tr);
+  });
+  body.appendChild(frag);
+}
+function openHistory(system){
+  activeHistorySystem=system;
+  const cfg=historyLabels[system];
+  document.getElementById('history-title').textContent=cfg.title;
+  document.getElementById('history-modal').classList.add('open');
+  document.getElementById('history-modal').setAttribute('aria-hidden','false');
+  renderHistory();
+}
+function closeHistory(){
+  document.getElementById('history-modal').classList.remove('open');
+  document.getElementById('history-modal').setAttribute('aria-hidden','true');
+}
+function exportHistoryCsv(){
+  if(!activeHistoryRows.length)return;
+  const cfg=historyLabels[activeHistorySystem];
+  const esc=v=>'"'+String(v).replaceAll('"','""')+'"';
+  const lines=[['Timestamp','Sensor','Value'].map(esc).join(',')];
+  activeHistoryRows.forEach(r=>lines.push([fmtTime(r.timestamp),cfg.sensors[r.topic]||r.topic,prettyValue(r.topic,r.value)].map(esc).join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=`${activeHistorySystem}_history.csv`;a.click();
+  URL.revokeObjectURL(url);
+}
+document.querySelectorAll('[data-history-system]').forEach(btn=>btn.addEventListener('click',()=>openHistory(btn.dataset.historySystem)));
+document.getElementById('history-close').addEventListener('click',closeHistory);
+document.getElementById('history-modal').addEventListener('click',e=>{if(e.target.id==='history-modal')closeHistory()});
+document.getElementById('history-range').addEventListener('change',renderHistory);
+document.getElementById('history-limit').addEventListener('change',renderHistory);
+document.getElementById('history-export').addEventListener('click',exportHistoryCsv);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHistory()});
+
+</script>
+</body>
+</html>
